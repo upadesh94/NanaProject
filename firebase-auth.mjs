@@ -1,5 +1,5 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js';
-import { getAnalytics } from 'https://www.gstatic.com/firebasejs/12.9.0/firebase-analytics.js';
+import { getAnalytics, isSupported as isAnalyticsSupported } from 'https://www.gstatic.com/firebasejs/12.9.0/firebase-analytics.js';
 import {
   browserSessionPersistence,
   getAuth,
@@ -12,14 +12,45 @@ import {
   updateProfile
 } from 'https://www.gstatic.com/firebasejs/12.9.0/firebase-auth.js';
 
-const configResponse = await fetch('/api/firebase-config');
-if (!configResponse.ok) throw new Error('Firebase web configuration is unavailable.');
-const firebaseConfig = await configResponse.json();
+let firebaseConfig = {
+  apiKey: "AIzaSyA3rJ4aQemAe_ITR_dftDdmPf11A6jLgTE",
+  authDomain: "attendenceapp-209e9.firebaseapp.com",
+  projectId: "attendenceapp-209e9",
+  storageBucket: "attendenceapp-209e9.firebasestorage.app",
+  messagingSenderId: "107409632890",
+  appId: "1:107409632890:web:5c2e5a83a3bf791e1a15c3",
+  measurementId: "G-Y4ZX678GBF"
+};
+
+try {
+  const configResponse = await fetch('/api/firebase-config');
+  if (configResponse.ok) {
+    const remoteConfig = await configResponse.json();
+    if (remoteConfig && remoteConfig.apiKey) {
+      firebaseConfig = { ...firebaseConfig, ...remoteConfig };
+    }
+  }
+} catch (e) {
+  console.warn('Could not fetch remote Firebase config, using default config:', e);
+}
 
 const firebaseApp = initializeApp(firebaseConfig);
-const analytics = getAnalytics(firebaseApp);
+
+try {
+  if (await isAnalyticsSupported()) {
+    getAnalytics(firebaseApp);
+  }
+} catch (e) {
+  // Analytics optional
+}
+
 const auth = getAuth(firebaseApp);
-await setPersistence(auth, browserSessionPersistence);
+try {
+  await setPersistence(auth, browserSessionPersistence);
+} catch (e) {
+  console.warn('Failed to set persistence:', e);
+}
+
 const usernameEmail = username => `${username.trim().toLowerCase()}@users.${firebaseConfig.projectId}.firebaseapp.com`;
 
 window.firebaseSignIn = async (identifier, password) => {

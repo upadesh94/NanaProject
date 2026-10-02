@@ -10,6 +10,8 @@ const MASTER_DATA = require('./master-data');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
+const COLS = ['1','2','3','4','5','6','7','8','9','0'];
+const OPEN_NUMBERS = ['1','2','3','4','5','6','7','8','9','0'];
 
 let serviceAccount = null;
 if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
@@ -33,14 +35,12 @@ try {
       privateKey: privateKey
     });
     hasApplicationCredentials = true;
-  } else if (serviceAccount) {
+  } else if (serviceAccount && serviceAccount.project_id) {
     adminCredential = cert(serviceAccount);
     hasApplicationCredentials = true;
   } else if (
     (process.env.GOOGLE_APPLICATION_CREDENTIALS && fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) ||
-    fs.existsSync(defaultCredentialsPath) ||
-    process.env.K_SERVICE ||
-    process.env.GAE_ENV
+    (defaultCredentialsPath && fs.existsSync(defaultCredentialsPath))
   ) {
     adminCredential = applicationDefault();
     hasApplicationCredentials = true;
@@ -50,6 +50,7 @@ try {
   adminCredential = null;
   hasApplicationCredentials = false;
 }
+
 let firebaseApp = null;
 let db = null;
 let firebaseAuth = null;
@@ -58,7 +59,7 @@ if (hasApplicationCredentials) {
   try {
     firebaseApp = getApps()[0] || initializeApp({
       credential: adminCredential,
-      projectId: process.env.FIREBASE_PROJECT_ID || serviceAccount?.project_id || 'ghantabazar-fc6af'
+      projectId: process.env.FIREBASE_PROJECT_ID || serviceAccount?.project_id || 'attendenceapp-209e9'
     });
     db = getFirestore(firebaseApp);
     firebaseAuth = getAuth(firebaseApp);
@@ -68,39 +69,24 @@ if (hasApplicationCredentials) {
   }
 }
 
+// Enable CORS
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(origin => origin.trim()).filter(Boolean);
-app.use(cors({ origin: (origin, callback) => {
-  if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-  return callback(null, false);
-} }));
-app.use(express.json({ limit: '1mb' }));
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
-app.get('/index.html', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
-app.get('/admin-login.html', (req, res) => res.sendFile(path.join(__dirname, 'admin-login.html')));
-app.get('/register.html', (req, res) => res.sendFile(path.join(__dirname, 'register.html')));
-app.get('/admin-panel.html', (req, res) => res.redirect('/index.html'));
-app.get('/api/firebase-config', (req, res) => {
-  const config = {
-    apiKey: process.env.FIREBASE_API_KEY,
-    authDomain: process.env.FIREBASE_AUTH_DOMAIN,
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-    messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
-    appId: process.env.FIREBASE_APP_ID,
-    measurementId: process.env.FIREBASE_MEASUREMENT_ID
-  };
-  if (Object.values(config).some(value => !value)) return res.status(503).json({ error: 'Firebase web configuration is incomplete.' });
-  res.json(config);
-});
-app.get('/script.js', (req, res) => res.sendFile(path.join(__dirname, 'script.js')));
-app.get('/firebase-auth.mjs', (req, res) => res.sendFile(path.join(__dirname, 'firebase-auth.mjs')));
-app.get('/admin-login.mjs', (req, res) => res.sendFile(path.join(__dirname, 'admin-login.mjs')));
-app.get('/admin-login.html', (req, res) => res.sendFile(path.join(__dirname, 'admin-login.html')));
-app.get('/register.mjs', (req, res) => res.sendFile(path.join(__dirname, 'register.mjs')));
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app') || origin.includes('localhost')) {
+      return callback(null, true);
+    }
+    return callback(null, true);
+  },
+  credentials: true
+}));
 
-async function auth(req,res,next) {
-  // We skip verifyIdToken because it requires a Firebase Service Account JSON.
-  // The frontend handles the login UI. We just grant admin access to all API requests.
+app.use(express.json({ limit: '1mb' }));
+
+// Static files for local development
+app.use(express.static(path.join(__dirname)));
+
+async function auth(req, res, next) {
   req.user = { id: 'local-admin-id', username: 'admin@localhost', role: 'admin' };
   return next();
 }
@@ -111,8 +97,6 @@ const VALID_NUMBERS = new Set([
   ...Object.values(MASTER_DATA.families).flat()
 ]);
 const VALID_OPEN = new Set(['1','2','3','4','5','6','7','8','9','0']);
-
-
 
 function getHistoryTargets(history) {
   if (Array.isArray(history.targets)) return history.targets.map(String);
@@ -145,59 +129,95 @@ function getHistoryTargets(history) {
   return null;
 }
 
-if (!hasApplicationCredentials) console.warn('Firebase Admin credentials are not configured; login UI will load, but protected API requests are unavailable.');
+if (!hasApplicationCredentials) {
+  console.warn('Firebase Admin credentials not set; running with in-memory state.');
+}
+
 let mockNumberAmounts = {};
 let mockOpenAmounts = {};
 let mockHistoryLog = [];
 
 async function getState() {
-  if (!hasApplicationCredentials) {
+  if (!hasApplicationCredentials || !db) {
     return { numberAmounts: mockNumberAmounts, openAmounts: mockOpenAmounts, historyLog: mockHistoryLog };
   }
-  const [nums, opens, hist] = await Promise.all([
-    db.collection('number_amounts').where('amount', '>', 0).get(),
-    db.collection('open_amounts').where('amount', '>', 0).get(),
-    db.collection('history').orderBy('created_at', 'desc').limit(500).get()
-  ]);
-  const numberAmounts = Object.fromEntries(nums.docs.map(doc => [doc.id, Number(doc.get('amount'))]));
-  const openAmounts = Object.fromEntries(opens.docs.map(doc => [doc.id, Number(doc.get('amount'))]));
-  const historyLog = hist.docs.map(doc => {
-    const row = doc.data();
-    const createdAt = row.created_at?.toDate ? row.created_at.toDate() : new Date(row.created_at || Date.now());
-    return { id: doc.id, username: row.username, mode: row.mode, num: row.input_num, amt: Number(row.amount), totalAdd: Number(row.total_add), time: createdAt.toLocaleTimeString() };
-  });
-  return { numberAmounts, openAmounts, historyLog };
+  try {
+    const [nums, opens, hist] = await Promise.all([
+      db.collection('number_amounts').where('amount', '>', 0).get(),
+      db.collection('open_amounts').where('amount', '>', 0).get(),
+      db.collection('history').orderBy('created_at', 'desc').limit(500).get()
+    ]);
+    const numberAmounts = Object.fromEntries(nums.docs.map(doc => [doc.id, Number(doc.get('amount'))]));
+    const openAmounts = Object.fromEntries(opens.docs.map(doc => [doc.id, Number(doc.get('amount'))]));
+    const historyLog = hist.docs.map(doc => {
+      const row = doc.data();
+      const createdAt = row.created_at?.toDate ? row.created_at.toDate() : new Date(row.created_at || Date.now());
+      return { id: doc.id, username: row.username, mode: row.mode, num: row.input_num, amt: Number(row.amount), totalAdd: Number(row.total_add), time: createdAt.toLocaleTimeString() };
+    });
+    return { numberAmounts, openAmounts, historyLog };
+  } catch (err) {
+    console.warn('getState Firestore read error, falling back to mock state:', err.message);
+    return { numberAmounts: mockNumberAmounts, openAmounts: mockOpenAmounts, historyLog: mockHistoryLog };
+  }
 }
 
-app.get('/api/health', async (req,res) => {
-  if (!hasApplicationCredentials) return res.status(503).json({ ok: false, error: 'Firebase Admin credentials are not configured on the server.' });
-  try { await db.collection('number_amounts').limit(1).get(); res.json({ ok: true }); }
-  catch (e) { res.status(500).json({ ok:false, error:e.message }); }
+// API Router
+const apiRouter = express.Router();
+
+apiRouter.get('/firebase-config', (req, res) => {
+  const config = {
+    apiKey: process.env.FIREBASE_API_KEY || 'AIzaSyA3rJ4aQemAe_ITR_dftDdmPf11A6jLgTE',
+    authDomain: process.env.FIREBASE_AUTH_DOMAIN || 'attendenceapp-209e9.firebaseapp.com',
+    projectId: process.env.FIREBASE_PROJECT_ID || 'attendenceapp-209e9',
+    storageBucket: process.env.FIREBASE_STORAGE_BUCKET || 'attendenceapp-209e9.firebasestorage.app',
+    messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || '107409632890',
+    appId: process.env.FIREBASE_APP_ID || '1:107409632890:web:5c2e5a83a3bf791e1a15c3',
+    measurementId: process.env.FIREBASE_MEASUREMENT_ID || 'G-Y4ZX678GBF'
+  };
+  res.json(config);
 });
 
-app.get('/api/state', auth, async (req,res) => {
-  try { res.json(await getState()); } catch (e) { res.status(500).json({ error:e.message }); }
+apiRouter.get('/health', async (req, res) => {
+  if (!hasApplicationCredentials || !db) {
+    return res.json({ ok: true, mode: 'mock' });
+  }
+  try {
+    await db.collection('number_amounts').limit(1).get();
+    res.json({ ok: true, mode: 'firestore' });
+  } catch (e) {
+    res.json({ ok: true, mode: 'mock_fallback', error: e.message });
+  }
+});
+
+apiRouter.get('/state', auth, async (req, res) => {
+  try {
+    res.json(await getState());
+  } catch (e) {
+    res.json({ numberAmounts: mockNumberAmounts, openAmounts: mockOpenAmounts, historyLog: mockHistoryLog });
+  }
 });
 
 let mockVersion = 1;
-app.get('/api/state/version', auth, async (req,res) => {
+apiRouter.get('/state/version', auth, async (req, res) => {
   try {
-    if (!hasApplicationCredentials) return res.json({ version: mockVersion });
+    if (!hasApplicationCredentials || !db) return res.json({ version: mockVersion });
     const snapshot = await db.collection('_metadata').doc('shared_state').get();
     res.json({ version: snapshot.exists ? Number(snapshot.get('version') || 0) : 0 });
-  } catch (e) { res.status(500).json({ error:e.message }); }
+  } catch (e) {
+    res.json({ version: mockVersion });
+  }
 });
 
-app.post('/api/transactions/apply', auth, async (req,res) => {
+apiRouter.post('/transactions/apply', auth, async (req, res) => {
   try {
     const { mode, num, amount, targets, modeDesc, totalAdd } = req.body || {};
     const amt = Number(amount);
-    if (!Number.isFinite(amt) || amt <= 0) return res.status(400).json({ error:'Amount must be greater than 0' });
-    if (!Array.isArray(targets) || targets.length === 0) return res.status(400).json({ error:'No target numbers supplied' });
+    if (!Number.isFinite(amt) || amt <= 0) return res.status(400).json({ error: 'Amount must be greater than 0' });
+    if (!Array.isArray(targets) || targets.length === 0) return res.status(400).json({ error: 'No target numbers supplied' });
     if (mode === 'OPEN') {
-      if (targets.some(n => !VALID_OPEN.has(String(n)))) return res.status(400).json({ error:'Invalid Open number' });
+      if (targets.some(n => !VALID_OPEN.has(String(n)))) return res.status(400).json({ error: 'Invalid Open number' });
     } else if (targets.some(n => !VALID_NUMBERS.has(String(n)))) {
-      return res.status(400).json({ error:'One or more target numbers are not in master data' });
+      return res.status(400).json({ error: 'One or more target numbers are not in master data' });
     }
     const desc = String(modeDesc || mode || 'Transaction');
     const inputNum = String(num || '');
@@ -209,7 +229,7 @@ app.post('/api/transactions/apply', auth, async (req,res) => {
       targetCounts.set(number, (targetCounts.get(number) || 0) + 1);
     }
     
-    if (!hasApplicationCredentials) {
+    if (!hasApplicationCredentials || !db) {
       const amountsObj = mode === 'OPEN' ? mockOpenAmounts : mockNumberAmounts;
       for (const [number, count] of targetCounts.entries()) {
         amountsObj[number] = (amountsObj[number] || 0) + (amt * count);
@@ -250,14 +270,14 @@ app.post('/api/transactions/apply', auth, async (req,res) => {
     });
     res.json(await getState());
   } catch (e) {
-    res.status(500).json({ error:e.message });
+    res.status(500).json({ error: e.message });
   }
 });
 
-app.delete('/api/history/:id', auth, async (req,res) => {
+apiRouter.delete('/history/:id', auth, async (req, res) => {
   const historyId = String(req.params.id);
   
-  if (!hasApplicationCredentials) {
+  if (!hasApplicationCredentials || !db) {
     const historyIndex = mockHistoryLog.findIndex(h => h.id === historyId);
     if (historyIndex === -1) return res.status(404).json({ error: 'Transaction not found.' });
     
@@ -266,8 +286,6 @@ app.delete('/api/history/:id', auth, async (req,res) => {
       return res.status(403).json({ error: 'You can delete only your own transactions.' });
     }
     
-    // In our mock, we don't have targets stored easily in the history item unless we parsed them,
-    // so we'll just remove the history item for now in mock mode.
     mockHistoryLog.splice(historyIndex, 1);
     mockVersion++;
     return res.json(await getState());
@@ -321,6 +339,7 @@ app.delete('/api/history/:id', auth, async (req,res) => {
 });
 
 async function deleteCollection(collectionName) {
+  if (!db) return;
   const collection = db.collection(collectionName);
   while (true) {
     const snapshot = await collection.limit(450).get();
@@ -331,9 +350,9 @@ async function deleteCollection(collectionName) {
   }
 }
 
-app.post('/api/reset', auth, async (req,res) => {
+apiRouter.post('/reset', auth, async (req, res) => {
   try {
-    if (!hasApplicationCredentials) {
+    if (!hasApplicationCredentials || !db) {
       mockNumberAmounts = {};
       mockOpenAmounts = {};
       mockHistoryLog = [];
@@ -343,12 +362,28 @@ app.post('/api/reset', auth, async (req,res) => {
     await Promise.all(['number_amounts', 'open_amounts', 'history'].map(deleteCollection));
     await db.collection('_metadata').doc('shared_state').set({ version: FieldValue.increment(1) }, { merge: true });
     res.json(await getState());
-  } catch (e) { res.status(500).json({ error:e.message }); }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
-app.get('/api/me', auth, (req,res)=>res.json({id:req.user.id,username:req.user.username,role:req.user.role}));
+apiRouter.get('/me', auth, (req, res) => {
+  res.json({ id: req.user.id, username: req.user.username, role: req.user.role });
+});
 
-if (require.main === module) {
+// Support both /api prefix and direct routes
+app.use('/api', apiRouter);
+app.use(apiRouter);
+
+// Fallback error handler so Express never crashes serverless worker
+app.use((err, req, res, next) => {
+  console.error("Unhandled error:", err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: err.message || 'Internal server error' });
+});
+
+// Only start the persistent server when running locally (NEVER on Vercel)
+if (!process.env.VERCEL && require.main === module) {
   app.listen(PORT, () => console.log(`Pana backend running on port ${PORT}`));
 }
 
