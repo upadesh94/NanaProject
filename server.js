@@ -20,16 +20,30 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
   }
 }
 const defaultCredentialsPath = path.join(process.env.APPDATA || '', 'gcloud', 'application_default_credentials.json');
-const hasApplicationCredentials = Boolean(
-  serviceAccount ||
+
+let hasApplicationCredentials = false;
+let adminCredential = null;
+
+if (process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PROJECT_ID) {
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
+  adminCredential = cert({
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+    privateKey: privateKey
+  });
+  hasApplicationCredentials = true;
+} else if (serviceAccount) {
+  adminCredential = cert(serviceAccount);
+  hasApplicationCredentials = true;
+} else if (
   (process.env.GOOGLE_APPLICATION_CREDENTIALS && fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) ||
   fs.existsSync(defaultCredentialsPath) ||
   process.env.K_SERVICE ||
   process.env.GAE_ENV
-);
-const adminCredential = serviceAccount
-  ? cert(serviceAccount)
-  : hasApplicationCredentials ? applicationDefault() : null;
+) {
+  adminCredential = applicationDefault();
+  hasApplicationCredentials = true;
+}
 const firebaseApp = getApps()[0] || initializeApp({
   ...(adminCredential ? { credential: adminCredential } : {}),
   projectId: process.env.FIREBASE_PROJECT_ID || serviceAccount?.project_id || 'ghantabazar-fc6af'
