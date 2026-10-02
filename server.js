@@ -11,9 +11,14 @@ const MASTER_DATA = require('./master-data');
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 
-const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_JSON
-  ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)
-  : null;
+let serviceAccount = null;
+if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+  try {
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  } catch (err) {
+    console.error("Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON:", err);
+  }
+}
 const defaultCredentialsPath = path.join(process.env.APPDATA || '', 'gcloud', 'application_default_credentials.json');
 const hasApplicationCredentials = Boolean(
   serviceAccount ||
