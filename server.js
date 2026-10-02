@@ -24,25 +24,31 @@ const defaultCredentialsPath = path.join(process.env.APPDATA || '', 'gcloud', 'a
 let hasApplicationCredentials = false;
 let adminCredential = null;
 
-if (process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PROJECT_ID) {
-  const privateKey = process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
-  adminCredential = cert({
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    privateKey: privateKey
-  });
-  hasApplicationCredentials = true;
-} else if (serviceAccount) {
-  adminCredential = cert(serviceAccount);
-  hasApplicationCredentials = true;
-} else if (
-  (process.env.GOOGLE_APPLICATION_CREDENTIALS && fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) ||
-  fs.existsSync(defaultCredentialsPath) ||
-  process.env.K_SERVICE ||
-  process.env.GAE_ENV
-) {
-  adminCredential = applicationDefault();
-  hasApplicationCredentials = true;
+try {
+  if (process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PROJECT_ID) {
+    const privateKey = process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
+    adminCredential = cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: privateKey
+    });
+    hasApplicationCredentials = true;
+  } else if (serviceAccount) {
+    adminCredential = cert(serviceAccount);
+    hasApplicationCredentials = true;
+  } else if (
+    (process.env.GOOGLE_APPLICATION_CREDENTIALS && fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) ||
+    fs.existsSync(defaultCredentialsPath) ||
+    process.env.K_SERVICE ||
+    process.env.GAE_ENV
+  ) {
+    adminCredential = applicationDefault();
+    hasApplicationCredentials = true;
+  }
+} catch (err) {
+  console.error("Firebase Admin credential initialization failed:", err.message);
+  adminCredential = null;
+  hasApplicationCredentials = false;
 }
 const firebaseApp = getApps()[0] || initializeApp({
   ...(adminCredential ? { credential: adminCredential } : {}),
