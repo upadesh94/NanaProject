@@ -8,11 +8,57 @@ const { FieldValue, getFirestore } = require('firebase-admin/firestore');
 const { getAuth } = require('firebase-admin/auth');
 const MASTER_DATA = require('./master-data');
 
+// Prevent unexpected process terminations
+process.on('uncaughtException', (err) => {
+  console.error('Unhandled process error:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection:', reason);
+});
+
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const COLS = ['1','2','3','4','5','6','7','8','9','0'];
 const OPEN_NUMBERS = ['1','2','3','4','5','6','7','8','9','0'];
 
+// Read static assets into memory so they are bundled by @vercel/nft and served instantly
+let adminLoginHtml = '';
+let indexHtml = '';
+let firebaseAuthMjs = '';
+let scriptJs = '';
+let adminLoginMjs = '';
+
+try {
+  adminLoginHtml = fs.readFileSync(path.join(__dirname, 'admin-login.html'), 'utf8');
+} catch (e) {
+  console.error("Could not read admin-login.html:", e.message);
+}
+
+try {
+  indexHtml = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+} catch (e) {
+  console.error("Could not read index.html:", e.message);
+}
+
+try {
+  firebaseAuthMjs = fs.readFileSync(path.join(__dirname, 'firebase-auth.mjs'), 'utf8');
+} catch (e) {
+  console.error("Could not read firebase-auth.mjs:", e.message);
+}
+
+try {
+  scriptJs = fs.readFileSync(path.join(__dirname, 'script.js'), 'utf8');
+} catch (e) {
+  console.error("Could not read script.js:", e.message);
+}
+
+try {
+  adminLoginMjs = fs.readFileSync(path.join(__dirname, 'admin-login.mjs'), 'utf8');
+} catch (e) {
+  console.error("Could not read admin-login.mjs:", e.message);
+}
+
+// Firebase Admin setup with fallbacks
 let serviceAccount = null;
 if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
   try {
@@ -69,7 +115,7 @@ if (hasApplicationCredentials) {
   }
 }
 
-// Enable CORS
+// Robust CORS
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(origin => origin.trim()).filter(Boolean);
 app.use(cors({
   origin: (origin, callback) => {
@@ -83,9 +129,48 @@ app.use(cors({
 
 app.use(express.json({ limit: '1mb' }));
 
-// Static files for local development
-app.use(express.static(path.join(__dirname)));
+// Static Asset Routes
+app.get('/admin-login.html', (req, res) => {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(adminLoginHtml);
+});
 
+app.get('/login', (req, res) => {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(adminLoginHtml);
+});
+
+app.get('/admin-login', (req, res) => {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(adminLoginHtml);
+});
+
+app.get('/index.html', (req, res) => {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(indexHtml);
+});
+
+app.get('/', (req, res) => {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(indexHtml);
+});
+
+app.get('/firebase-auth.mjs', (req, res) => {
+  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+  res.send(firebaseAuthMjs);
+});
+
+app.get('/script.js', (req, res) => {
+  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+  res.send(scriptJs);
+});
+
+app.get('/admin-login.mjs', (req, res) => {
+  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+  res.send(adminLoginMjs);
+});
+
+// Middleware for auth
 async function auth(req, res, next) {
   req.user = { id: 'local-admin-id', username: 'admin@localhost', role: 'admin' };
   return next();
@@ -129,10 +214,6 @@ function getHistoryTargets(history) {
   return null;
 }
 
-if (!hasApplicationCredentials) {
-  console.warn('Firebase Admin credentials not set; running with in-memory state.');
-}
-
 let mockNumberAmounts = {};
 let mockOpenAmounts = {};
 let mockHistoryLog = [];
@@ -156,12 +237,12 @@ async function getState() {
     });
     return { numberAmounts, openAmounts, historyLog };
   } catch (err) {
-    console.warn('getState Firestore read error, falling back to mock state:', err.message);
+    console.warn('getState Firestore read error, using mock state:', err.message);
     return { numberAmounts: mockNumberAmounts, openAmounts: mockOpenAmounts, historyLog: mockHistoryLog };
   }
 }
 
-// API Router
+// API Endpoints Router
 const apiRouter = express.Router();
 
 apiRouter.get('/firebase-config', (req, res) => {
@@ -371,20 +452,44 @@ apiRouter.get('/me', auth, (req, res) => {
   res.json({ id: req.user.id, username: req.user.username, role: req.user.role });
 });
 
-// Support both /api prefix and direct routes
+// Mount API router on both /api and root
 app.use('/api', apiRouter);
 app.use(apiRouter);
 
-// Fallback error handler so Express never crashes serverless worker
+// Fallback for any other GET requests to admin login page
+app.use((req, res, next) => {
+  if (req.method === 'GET' && !req.path.startsWith('/api')) {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.send(adminLoginHtml);
+  }
+  next();
+});
+
+// Global Express error handler
 app.use((err, req, res, next) => {
-  console.error("Unhandled error:", err);
+  console.error("Unhandled express error:", err);
   if (res.headersSent) return next(err);
   res.status(500).json({ error: err.message || 'Internal server error' });
 });
 
-// Only start the persistent server when running locally (NEVER on Vercel)
+// Wrapper handler for Vercel
+const handler = (req, res) => {
+  try {
+    return app(req, res);
+  } catch (err) {
+    console.error("Top-level invocation error:", err);
+    if (!res.headersSent) {
+      res.statusCode = 500;
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.end(`<h1>Server Error</h1><pre>${err.message}\n${err.stack}</pre>`);
+    }
+  }
+};
+
+// Start persistent server ONLY when run directly locally
 if (!process.env.VERCEL && require.main === module) {
   app.listen(PORT, () => console.log(`Pana backend running on port ${PORT}`));
 }
 
-module.exports = app;
+module.exports = handler;
+module.exports.default = handler;
