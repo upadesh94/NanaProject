@@ -112,27 +112,7 @@ const VALID_NUMBERS = new Set([
 ]);
 const VALID_OPEN = new Set(['1','2','3','4','5','6','7','8','9','0']);
 
-async function ensureDemoUser() {
-  const email = process.env.DEMO_USER_EMAIL || 'ganesh@123gmail.com';
-  const password = process.env.DEMO_USER_PASSWORD || '';
-  if (!password) {
-    console.warn(`Demo user ${email} was not created; set DEMO_USER_PASSWORD to a Firebase-valid password.`);
-    return;
-  }
-  if (password.length < 6) {
-    console.warn(`Demo user ${email} was not created; Firebase passwords must contain at least 6 characters.`);
-    return;
-  }
 
-  let user;
-  try {
-    user = await firebaseAuth.getUserByEmail(email);
-  } catch (error) {
-    if (error.code !== 'auth/user-not-found') throw error;
-    user = await firebaseAuth.createUser({ email, password, emailVerified: true });
-  }
-  await firebaseAuth.setCustomUserClaims(user.uid, { ...user.customClaims, role: 'admin' });
-}
 
 function getHistoryTargets(history) {
   if (Array.isArray(history.targets)) return history.targets.map(String);
@@ -165,15 +145,7 @@ function getHistoryTargets(history) {
   return null;
 }
 
-const firebaseReady = hasApplicationCredentials ? ensureDemoUser() : Promise.resolve();
 if (!hasApplicationCredentials) console.warn('Firebase Admin credentials are not configured; login UI will load, but protected API requests are unavailable.');
-app.use((req, res, next) => {
-  firebaseReady.then(() => next()).catch(error => {
-    console.error('Firebase setup failed:', error.message);
-    res.status(500).json({ error: 'Firebase setup failed. Check server credentials and demo user configuration.' });
-  });
-});
-
 let mockNumberAmounts = {};
 let mockOpenAmounts = {};
 let mockHistoryLog = [];
@@ -377,13 +349,7 @@ app.post('/api/reset', auth, async (req,res) => {
 app.get('/api/me', auth, (req,res)=>res.json({id:req.user.id,username:req.user.username,role:req.user.role}));
 
 if (require.main === module) {
-  firebaseReady
-    .then(() => app.listen(PORT, () => console.log(`Pana backend running on port ${PORT}`)))
-    .catch(e => {
-      console.error('Firebase setup failed:', e.message);
-      console.error('Check Firestore is enabled and Firebase Admin credentials are configured.');
-      process.exit(1);
-    });
+  app.listen(PORT, () => console.log(`Pana backend running on port ${PORT}`));
 }
 
 module.exports = app;
