@@ -3,9 +3,6 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const cors = require('cors');
-const { applicationDefault, cert, getApps, initializeApp } = require('firebase-admin/app');
-const { FieldValue, getFirestore } = require('firebase-admin/firestore');
-const { getAuth } = require('firebase-admin/auth');
 const MASTER_DATA = require('./master-data');
 
 // Prevent unexpected process terminations
@@ -15,6 +12,19 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled promise rejection:', reason);
 });
+
+// Safely load firebase-admin without crashing older or mismatched Node environments
+let firebaseAdminApp = null;
+let firebaseAdminFirestore = null;
+let firebaseAdminAuth = null;
+
+try {
+  firebaseAdminApp = require('firebase-admin/app');
+  firebaseAdminFirestore = require('firebase-admin/firestore');
+  firebaseAdminAuth = require('firebase-admin/auth');
+} catch (err) {
+  console.warn('firebase-admin not loaded, running in pure mock/memory mode:', err.message);
+}
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -72,43 +82,50 @@ const defaultCredentialsPath = path.join(process.env.APPDATA || '', 'gcloud', 'a
 let hasApplicationCredentials = false;
 let adminCredential = null;
 
-try {
-  if (process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PROJECT_ID) {
-    const privateKey = process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
-    adminCredential = cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: privateKey
-    });
-    hasApplicationCredentials = true;
-  } else if (serviceAccount && serviceAccount.project_id) {
-    adminCredential = cert(serviceAccount);
-    hasApplicationCredentials = true;
-  } else if (
-    (process.env.GOOGLE_APPLICATION_CREDENTIALS && fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) ||
-    (defaultCredentialsPath && fs.existsSync(defaultCredentialsPath))
-  ) {
-    adminCredential = applicationDefault();
-    hasApplicationCredentials = true;
+if (firebaseAdminApp) {
+  try {
+    const { applicationDefault, cert } = firebaseAdminApp;
+    if (process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PROJECT_ID) {
+      const privateKey = process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
+      adminCredential = cert({
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: privateKey
+      });
+      hasApplicationCredentials = true;
+    } else if (serviceAccount && serviceAccount.project_id) {
+      adminCredential = cert(serviceAccount);
+      hasApplicationCredentials = true;
+    } else if (
+      (process.env.GOOGLE_APPLICATION_CREDENTIALS && fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) ||
+      (defaultCredentialsPath && fs.existsSync(defaultCredentialsPath))
+    ) {
+      adminCredential = applicationDefault();
+      hasApplicationCredentials = true;
+    }
+  } catch (err) {
+    console.error("Firebase Admin credential initialization failed:", err.message);
+    adminCredential = null;
+    hasApplicationCredentials = false;
   }
-} catch (err) {
-  console.error("Firebase Admin credential initialization failed:", err.message);
-  adminCredential = null;
-  hasApplicationCredentials = false;
 }
 
 let firebaseApp = null;
 let db = null;
 let firebaseAuth = null;
 
-if (hasApplicationCredentials) {
+if (hasApplicationCredentials && firebaseAdminApp && firebaseAdminFirestore) {
   try {
+    const { getApps, initializeApp } = firebaseAdminApp;
+    const { getFirestore } = firebaseAdminFirestore;
+    const { getAuth } = firebaseAdminAuth || {};
+
     firebaseApp = getApps()[0] || initializeApp({
       credential: adminCredential,
       projectId: process.env.FIREBASE_PROJECT_ID || serviceAccount?.project_id || 'attendenceapp-209e9'
     });
     db = getFirestore(firebaseApp);
-    firebaseAuth = getAuth(firebaseApp);
+    if (getAuth) firebaseAuth = getAuth(firebaseApp);
   } catch (err) {
     console.error("Firebase services initialization failed:", err.message);
     hasApplicationCredentials = false;
@@ -328,6 +345,7 @@ apiRouter.post('/transactions/apply', auth, async (req, res) => {
       return res.json(await getState());
     }
 
+    const FieldValue = firebaseAdminFirestore.FieldValue;
     await db.runTransaction(async transaction => {
       const refs = [...targetCounts.keys()].map(number => db.collection(collection).doc(number));
       const snapshots = await Promise.all(refs.map(ref => transaction.get(ref)));
@@ -372,6 +390,7 @@ apiRouter.delete('/history/:id', auth, async (req, res) => {
     return res.json(await getState());
   }
 
+  const FieldValue = firebaseAdminFirestore.FieldValue;
   const historyRef = db.collection('history').doc(historyId);
   try {
     await db.runTransaction(async transaction => {
@@ -440,6 +459,7 @@ apiRouter.post('/reset', auth, async (req, res) => {
       mockVersion++;
       return res.json(await getState());
     }
+    const FieldValue = firebaseAdminFirestore.FieldValue;
     await Promise.all(['number_amounts', 'open_amounts', 'history'].map(deleteCollection));
     await db.collection('_metadata').doc('shared_state').set({ version: FieldValue.increment(1) }, { merge: true });
     res.json(await getState());
