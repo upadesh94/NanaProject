@@ -11,6 +11,12 @@ import {
   signOut,
   updateProfile
 } from 'https://www.gstatic.com/firebasejs/12.9.0/firebase-auth.js';
+import {
+  getFirestore,
+  collection,
+  addDoc,
+  serverTimestamp
+} from 'https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js';
 
 let firebaseConfig = {
   apiKey: "AIzaSyA3rJ4aQemAe_ITR_dftDdmPf11A6jLgTE",
@@ -50,6 +56,30 @@ try {
 } catch (e) {
   console.warn('Failed to set persistence:', e);
 }
+
+// Client-side Firestore instance
+let clientFirestore = null;
+try {
+  clientFirestore = getFirestore(firebaseApp);
+} catch (e) {
+  console.warn('Client Firestore could not be initialized:', e.message);
+}
+
+// Helper to save transaction directly into Firestore
+window.firebaseSaveTransaction = async (data) => {
+  if (!clientFirestore) return null;
+  try {
+    const docRef = await addDoc(collection(clientFirestore, 'history'), {
+      ...data,
+      created_at: serverTimestamp(),
+      user_email: auth.currentUser?.email || 'admin'
+    });
+    return docRef.id;
+  } catch (err) {
+    console.warn('Firestore transaction save warning:', err.message);
+    return null;
+  }
+};
 
 const usernameEmail = username => `${username.trim().toLowerCase()}@users.${firebaseConfig.projectId}.firebaseapp.com`;
 

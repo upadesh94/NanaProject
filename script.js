@@ -15,6 +15,41 @@ let sharedStatePollTimer = null;
 function setAuth(token, username) {
   authToken = token || '';
   currentUser = username || '';
+  const userEl = document.getElementById('header-user-email');
+  if (userEl && username) {
+    userEl.textContent = username;
+  }
+}
+
+function startLiveClock() {
+  function tick() {
+    const now = new Date();
+    const dtEl = document.getElementById('header-live-datetime');
+    if (dtEl) {
+      const datePart = now.toLocaleDateString('en-GB', {
+        weekday: 'short',
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric'
+      });
+      const timePart = now.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true
+      });
+      dtEl.textContent = `${datePart} • ${timePart}`;
+    }
+  }
+  tick();
+  setInterval(tick, 1000);
+}
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startLiveClock);
+  } else {
+    startLiveClock();
+  }
 }
 async function apiRequest(path, options={}) {
   const headers = {'Content-Type':'application/json', ...(options.headers||{})};
@@ -44,6 +79,24 @@ async function pollSharedStateVersion() {
   }
 }
 async function applySharedTransaction(payload) {
+  // Save directly to Firestore if available
+  if (typeof window.firebaseSaveTransaction === 'function') {
+    try {
+      window.firebaseSaveTransaction({
+        mode: payload.modeDesc || payload.mode,
+        inputNum: payload.num,
+        amount: payload.amount,
+        targets: payload.targets,
+        totalAdd: payload.totalAdd,
+        user: currentUser || firebaseUid,
+        user_email: currentUser,
+        time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
+      }).catch(err => console.warn('Firestore direct save warning:', err.message));
+    } catch (e) {
+      console.warn('Firestore call error:', e);
+    }
+  }
+
   const data = await apiRequest('/api/transactions/apply',{method:'POST',body:JSON.stringify(payload)});
   numberAmounts = data.numberAmounts || {};
   openAmounts = data.openAmounts || {};
@@ -61,6 +114,7 @@ async function login(email,password) {
 function logout(){ return window.firebaseSignOut().finally(() => location.reload()); }
 
 function init(){
+  startLiveClock();
   renderOpenTable(); renderSPTable(); renderDPTable(); renderFamilyTable(); updateAllTotalsAndUI();
   
   if (window.firebaseOnAuthStateChanged) {
@@ -164,18 +218,141 @@ async function applyCommonCol(col,amtVal){
   const idx=COLS.indexOf(col),targets=[...MASTER_DATA.sp_table.map(r=>r[idx]),...MASTER_DATA.dp_table.map(r=>r[idx])].filter(Boolean);
   try{await applySharedTransaction({mode:'COMMON_COLUMN',num:`Col ${col}`,amount:amt,targets,modeDesc:`Common SP + DP Column ${col}`,totalAdd:amt*targets.length});}catch(e){showStatus(e.message,true);}
 }
-async function resetCalculator(){
-  if(!await confirmAction('Are you sure you want to reset all account data?','Reset All'))return;
-  try{const d=await apiRequest('/api/reset',{method:'POST'});numberAmounts=d.numberAmounts||{};openAmounts=d.openAmounts||{};historyLog=d.historyLog||[];updateAllTotalsAndUI();showStatus('Shared calculator state reset to 0.');}catch(e){showStatus(e.message,true);}
+function clearAllInputs() {
+  const numInput = document.getElementById('input-number');
+  if (numInput) numInput.value = '';
+
+  const amtInput = document.getElementById('input-amount');
+  if (amtInput) amtInput.value = '';
+
+  document.querySelectorAll('.col-input').forEach(input => {
+    input.value = '';
+  });
+
+  document.querySelectorAll('input').forEach(input => {
+    if (input.type === 'text' || input.type === 'number' || input.type === 'search') {
+      input.value = '';
+    }
+  });
+
+  const sb = document.getElementById('search-status');
+  if (sb) {
+    sb.className = 'status-box';
+    sb.style.display = 'none';
+    sb.innerHTML = '';
+  }
 }
-async function deleteTransaction(transactionId){
-  if(!await confirmAction('Are you sure you want to delete this transaction?','Delete'))return;
-  try{const d=await apiRequest(`/api/history/${encodeURIComponent(transactionId)}`,{method:'DELETE'});numberAmounts=d.numberAmounts||{};openAmounts=d.openAmounts||{};historyLog=d.historyLog||[];updateAllTotalsAndUI();showStatus('Transaction deleted.');}catch(e){showStatus(e.message,true);}
+
+async function resetCalculator() {
+  const confirmed = await confirmAction(
+    'Are you sure you want to reset all account data? All amounts and inputs will be cleared.',
+    'Reset All Amounts',
+    {
+      title: 'Confirm Reset All Amounts',
+      icon: '🔄',
+      showExcel: true
+    }
+  );
+  if (!confirmed) return;
+
+  clearAllInputs();
+
+  try {
+    const d = await apiRequest('/api/reset', { method: 'POST' });
+    numberAmounts = d.numberAmounts || {};
+    openAmounts = d.openAmounts || {};
+    historyLog = d.historyLog || [];
+    updateAllTotalsAndUI();
+    showStatus('Shared calculator state and all inputs have been reset.');
+  } catch (e) {
+    showStatus(e.message, true);
+  }
 }
-function confirmAction(message,confirmLabel){
-  const dialog=document.getElementById('action-confirm-dialog'),prompt=document.getElementById('action-confirm-message'),confirmButton=document.getElementById('action-confirm-submit');
-  prompt.textContent=message;confirmButton.textContent=confirmLabel;dialog.showModal();
-  return new Promise(resolve=>dialog.addEventListener('close',()=>resolve(dialog.returnValue==='confirm'),{once:true}));
+
+async function deleteTransaction(transactionId) {
+  const confirmed = await confirmAction(
+    'Are you sure you want to delete this transaction from history? You can download an Excel backup below before deleting.',
+    'Delete Record',
+    {
+      title: 'Confirm Delete Transaction',
+      icon: '🗑️',
+      showExcel: true
+    }
+  );
+  if (!confirmed) return;
+
+  try {
+    const d = await apiRequest(`/api/history/${encodeURIComponent(transactionId)}`, { method: 'DELETE' });
+    numberAmounts = d.numberAmounts || {};
+    openAmounts = d.openAmounts || {};
+    historyLog = d.historyLog || [];
+    updateAllTotalsAndUI();
+    showStatus('Transaction deleted successfully.');
+  } catch (e) {
+    showStatus(e.message, true);
+  }
+}
+
+function confirmAction(message, confirmLabel = 'Confirm', options = {}) {
+  const dialog = document.getElementById('action-confirm-dialog');
+  if (!dialog) return Promise.resolve(confirm(message));
+
+  const prompt = document.getElementById('action-confirm-message');
+  const titleEl = document.getElementById('action-confirm-title');
+  const iconEl = document.getElementById('action-confirm-icon');
+  const confirmBtn = document.getElementById('action-confirm-submit');
+  const cancelBtn = document.getElementById('action-confirm-cancel');
+  const excelBox = document.getElementById('dialog-excel-box');
+
+  if (prompt) prompt.textContent = message;
+  if (confirmBtn) confirmBtn.textContent = confirmLabel;
+  if (titleEl) titleEl.textContent = options.title || 'Confirm Action';
+  if (iconEl) iconEl.textContent = options.icon || (confirmLabel.toLowerCase().includes('delete') ? '🗑️' : '⚠️');
+
+  if (excelBox) {
+    excelBox.style.display = options.showExcel !== false ? 'flex' : 'none';
+  }
+
+  return new Promise(resolve => {
+    let resolved = false;
+
+    const handleConfirm = (e) => {
+      if (e) e.preventDefault();
+      if (resolved) return;
+      resolved = true;
+      cleanup();
+      dialog.close('confirm');
+      resolve(true);
+    };
+
+    const handleCancel = (e) => {
+      if (e) e.preventDefault();
+      if (resolved) return;
+      resolved = true;
+      cleanup();
+      dialog.close('cancel');
+      resolve(false);
+    };
+
+    const handleClose = () => {
+      if (resolved) return;
+      resolved = true;
+      cleanup();
+      resolve(dialog.returnValue === 'confirm');
+    };
+
+    function cleanup() {
+      if (confirmBtn) confirmBtn.removeEventListener('click', handleConfirm);
+      if (cancelBtn) cancelBtn.removeEventListener('click', handleCancel);
+      dialog.removeEventListener('close', handleClose);
+    }
+
+    if (confirmBtn) confirmBtn.addEventListener('click', handleConfirm);
+    if (cancelBtn) cancelBtn.addEventListener('click', handleCancel);
+    dialog.addEventListener('close', handleClose);
+
+    dialog.showModal();
+  });
 }
 function renderOpenTable(){const tb=document.getElementById('open-tbody');if(!tb)return;tb.innerHTML=OPEN_NUMBERS.map(n=>`<tr><td><span class="cell-num">${n}</span></td><td><span class="cell-amt" id="open-amt-${n}"></span></td></tr>`).join('');}
 function renderSPTable(){const tb=document.getElementById('sp-tbody');if(!tb)return;tb.innerHTML=MASTER_DATA.sp_table.map((row,r)=>`<tr><td></td>${row.map((v,c)=>`<td id="sp-cell-${r}-${c}"><span class="cell-num">${v}</span><span class="cell-amt" id="sp-amt-${r}-${c}"></span></td>`).join('')}<td class="row-total-col" id="sp-row-tot-${r}">0</td></tr>`).join('');}
@@ -217,3 +394,7 @@ function exportToExcel(){
   ws['!cols']=[{wch:18},...Array(10).fill({wch:14})];const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Pana & Open Chart');XLSX.writeFile(wb,`Complete_Pana_Open_Chart_${dateStr}.xlsx`);
 }
 window.login=login;window.logout=logout;window.setAuth=setAuth;window.loadSharedState=loadSharedState;window.onload=init;
+window.exportToExcel=exportToExcel;window.resetCalculator=resetCalculator;window.deleteTransaction=deleteTransaction;
+window.clearAllInputs=clearAllInputs;window.confirmAction=confirmAction;window.applyMode=applyMode;
+window.applyDirectCol=applyDirectCol;window.applyCommonCol=applyCommonCol;window.switchPage=switchPage;
+window.locateNumber=locateNumber;window.startLiveClock=startLiveClock;

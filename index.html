@@ -20,15 +20,63 @@
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
     body { background-color: var(--bg); color: var(--text); padding: 15px; }
-    header {
+    header.main-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      background: var(--primary);
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
       color: white;
       padding: 12px 20px;
-      border-radius: 8px;
-      margin-bottom: 15px;
+      border-radius: 10px;
+      margin-bottom: 16px;
+      box-shadow: 0 4px 15px -3px rgba(15, 23, 42, 0.2);
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .header-left {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .header-left h2 {
+      font-size: 1.35rem;
+      letter-spacing: -0.02em;
+      margin: 0;
+      color: #f8fafc;
+    }
+    .header-meta-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .meta-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      font-weight: 500;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+    .meta-pill.user-pill {
+      background: rgba(37, 99, 235, 0.2);
+      border-color: rgba(96, 165, 250, 0.35);
+      color: #bfdbfe;
+      font-weight: 600;
+    }
+    .meta-pill.time-pill {
+      background: rgba(16, 185, 129, 0.15);
+      border-color: rgba(52, 211, 153, 0.3);
+      color: #a7f3d0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
     }
     .overall-badge {
       background: var(--success);
@@ -36,6 +84,7 @@
       border-radius: 6px;
       font-size: 1.1rem;
       font-weight: bold;
+      color: white;
     }
     .nav-tabs { display: flex; gap: 10px; margin-bottom: 15px; }
     .nav-btn {
@@ -120,12 +169,101 @@
     .history-item { padding: 6px 0; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; }
     .delete-btn { background: var(--danger); color: white; border: none; border-radius: 3px; padding: 3px 8px; cursor: pointer; font-size: 0.75rem; font-weight: bold; }
     .delete-btn:hover { background: #b91c1c; }
-    .action-confirm-dialog { width: min(420px, calc(100% - 32px)); margin: auto; padding: 20px; border: 1px solid var(--border); border-radius: 6px; color: var(--text); }
-    .action-confirm-dialog::backdrop { background: rgb(15 23 42 / 45%); }
-    .action-confirm-dialog p { margin-bottom: 18px; }
-    .action-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
-    .action-confirm-actions button { padding: 7px 12px; border: 1px solid var(--border); border-radius: 4px; background: white; cursor: pointer; }
-    .action-confirm-actions button:last-child { border-color: var(--danger); background: var(--danger); color: white; }
+    .action-confirm-dialog {
+      width: min(450px, calc(100% - 32px));
+      margin: auto;
+      padding: 0;
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      border-radius: 12px;
+      box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.35);
+      color: var(--text);
+      background: #ffffff;
+      overflow: hidden;
+    }
+    .action-confirm-dialog::backdrop {
+      background: rgba(15, 23, 42, 0.65);
+      backdrop-filter: blur(4px);
+    }
+    .dialog-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 16px 20px;
+      background: #f8fafc;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .dialog-header h3 {
+      margin: 0;
+      font-size: 1.05rem;
+      color: var(--primary);
+    }
+    .dialog-body {
+      padding: 20px;
+    }
+    .dialog-body p {
+      font-size: 0.95rem;
+      color: #334155;
+      line-height: 1.5;
+      margin-bottom: 16px;
+    }
+    .dialog-excel-box {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .dialog-excel-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      background: #16a34a;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 9px 16px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .dialog-excel-btn:hover {
+      background: #15803d;
+    }
+    .dialog-footer {
+      padding: 14px 20px;
+      background: #f8fafc;
+      border-top: 1px solid #e2e8f0;
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+    .btn-dialog-cancel {
+      padding: 8px 16px;
+      border: 1px solid var(--border);
+      background: white;
+      color: #475569;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+    .btn-dialog-cancel:hover { background: #f1f5f9; }
+    .btn-dialog-confirm {
+      padding: 8px 16px;
+      border: none;
+      background: var(--danger);
+      color: white;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+    .btn-dialog-confirm:hover { background: #b91c1c; }
     .page-section { display: none; }
     .page-section.active { display: block; }
     #app-content { display: none; }
@@ -141,11 +279,31 @@
 @keyframes authSpin { to { transform: rotate(360deg); } }
 </style>
 <div id="app-content">
-<header>
-<h2>Pana Calculator System</h2>
-<div class="overall-badge">Overall Total: <span id="overall-total">0</span></div>
-<button class="action-btn btn-reset" onclick="resetCalculator()">Reset All Amounts</button>
-<button class="action-btn" onclick="window.firebaseSignOut()">Logout</button>
+<header class="main-header">
+  <div class="header-left">
+    <h2>Pana Calculator System</h2>
+    <div class="header-meta-row">
+      <div class="meta-pill user-pill" title="Logged in user">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+          <circle cx="12" cy="7" r="4"></circle>
+        </svg>
+        <span id="header-user-email">Admin</span>
+      </div>
+      <div class="meta-pill time-pill" title="Current Date and Live Time">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <polyline points="12 6 12 12 16 14"></polyline>
+        </svg>
+        <span id="header-live-datetime">Loading time...</span>
+      </div>
+    </div>
+  </div>
+  <div class="header-actions">
+    <div class="overall-badge">Overall Total: <span id="overall-total">0</span></div>
+    <button class="action-btn btn-reset" onclick="resetCalculator()">Reset All Amounts</button>
+    <button class="action-btn" onclick="window.firebaseSignOut()">Logout</button>
+  </div>
 </header>
 <div class="nav-tabs">
 <button class="nav-btn active" onclick="switchPage('sp-dp-page', this)">PAGE 1: SP + DP</button>
@@ -325,16 +483,32 @@
     <div class="history-list" id="history-list"></div>
   </div>
   <dialog class="action-confirm-dialog" id="action-confirm-dialog">
-    <form method="dialog">
-      <p id="action-confirm-message"></p>
-      <div class="action-confirm-actions">
-        <button value="cancel">Cancel</button>
-        <button value="confirm" id="action-confirm-submit">Confirm</button>
+    <form method="dialog" style="margin: 0;">
+      <div class="dialog-header">
+        <span id="action-confirm-icon" style="font-size: 1.3rem;">⚠️</span>
+        <h3 id="action-confirm-title">Confirm Action</h3>
+      </div>
+      <div class="dialog-body">
+        <p id="action-confirm-message">Are you sure you want to proceed?</p>
+        <div class="dialog-excel-box" id="dialog-excel-box">
+          <div style="font-weight: 600; font-size: 0.85rem; color: #166534; display: flex; align-items: center; gap: 6px;">
+            <span>💾 Backup Excel Option</span>
+          </div>
+          <span style="font-size: 0.82rem; color: #15803d;">You can download an Excel backup of all amounts before deleting:</span>
+          <button type="button" class="dialog-excel-btn" id="dialog-download-excel-btn" onclick="exportToExcel()">
+            📥 Download Excel File
+          </button>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <button type="button" class="btn-dialog-cancel" id="action-confirm-cancel">Cancel</button>
+        <button type="button" class="btn-dialog-confirm" id="action-confirm-submit">Confirm</button>
       </div>
     </form>
   </dialog>
 
-  <script src="/script.js">
+  <script src="/script.js"></script>
+  <!--
     const MASTER_DATA = {
       "sp_table": [
         ["128", "129", "120", "130", "140", "123", "124", "125", "126", "127"],
@@ -981,7 +1155,7 @@
       XLSX.utils.book_append_sheet(wb, ws, "Pana & Open Chart");
       XLSX.writeFile(wb, `Complete_Pana_Open_Chart_${dateStr}.xlsx`);
     }
-  </script>
+  -->
   </div><!-- end #app-content -->
   <script type="module">
     import './firebase-auth.mjs';
@@ -993,6 +1167,8 @@
       if (user) {
         if (loadingScreen) loadingScreen.remove();
         if (appContent) appContent.classList.add('authenticated');
+        const userEmailEl = document.getElementById('header-user-email');
+        if (userEmailEl) userEmailEl.textContent = user.email || 'Admin';
       } else {
         // Redirect to new admin login page
         window.location.replace('/admin-login.html');

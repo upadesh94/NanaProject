@@ -146,46 +146,25 @@ app.use(cors({
 
 app.use(express.json({ limit: '1mb' }));
 
+function sendStatic(res, filename, mimeType, fallbackContent) {
+  res.setHeader('Content-Type', mimeType);
+  try {
+    const content = fs.readFileSync(path.join(__dirname, filename), 'utf8');
+    return res.send(content);
+  } catch (e) {
+    return res.send(fallbackContent);
+  }
+}
+
 // Static Asset Routes
-app.get('/admin-login.html', (req, res) => {
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(adminLoginHtml);
-});
-
-app.get('/login', (req, res) => {
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(adminLoginHtml);
-});
-
-app.get('/admin-login', (req, res) => {
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(adminLoginHtml);
-});
-
-app.get('/index.html', (req, res) => {
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(indexHtml);
-});
-
-app.get('/', (req, res) => {
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(indexHtml);
-});
-
-app.get('/firebase-auth.mjs', (req, res) => {
-  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-  res.send(firebaseAuthMjs);
-});
-
-app.get('/script.js', (req, res) => {
-  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-  res.send(scriptJs);
-});
-
-app.get('/admin-login.mjs', (req, res) => {
-  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-  res.send(adminLoginMjs);
-});
+app.get('/admin-login.html', (req, res) => sendStatic(res, 'admin-login.html', 'text/html; charset=utf-8', adminLoginHtml));
+app.get('/login', (req, res) => sendStatic(res, 'admin-login.html', 'text/html; charset=utf-8', adminLoginHtml));
+app.get('/admin-login', (req, res) => sendStatic(res, 'admin-login.html', 'text/html; charset=utf-8', adminLoginHtml));
+app.get('/index.html', (req, res) => sendStatic(res, 'index.html', 'text/html; charset=utf-8', indexHtml));
+app.get('/', (req, res) => sendStatic(res, 'index.html', 'text/html; charset=utf-8', indexHtml));
+app.get('/firebase-auth.mjs', (req, res) => sendStatic(res, 'firebase-auth.mjs', 'application/javascript; charset=utf-8', firebaseAuthMjs));
+app.get('/script.js', (req, res) => sendStatic(res, 'script.js', 'application/javascript; charset=utf-8', scriptJs));
+app.get('/admin-login.mjs', (req, res) => sendStatic(res, 'admin-login.mjs', 'application/javascript; charset=utf-8', adminLoginMjs));
 
 // Middleware for auth
 async function auth(req, res, next) {
@@ -231,9 +210,40 @@ function getHistoryTargets(history) {
   return null;
 }
 
+const stateDir = path.join(__dirname, 'data');
+const stateFilePath = path.join(stateDir, 'shared_state.json');
+
 let mockNumberAmounts = {};
 let mockOpenAmounts = {};
 let mockHistoryLog = [];
+
+try {
+  if (fs.existsSync(stateFilePath)) {
+    const raw = fs.readFileSync(stateFilePath, 'utf8');
+    const parsed = JSON.parse(raw);
+    mockNumberAmounts = parsed.numberAmounts || {};
+    mockOpenAmounts = parsed.openAmounts || {};
+    mockHistoryLog = parsed.historyLog || [];
+  }
+} catch (e) {
+  console.warn("Could not load local shared_state.json:", e.message);
+}
+
+function saveLocalState() {
+  try {
+    if (!fs.existsSync(stateDir)) {
+      fs.mkdirSync(stateDir, { recursive: true });
+    }
+    fs.writeFileSync(stateFilePath, JSON.stringify({
+      numberAmounts: mockNumberAmounts,
+      openAmounts: mockOpenAmounts,
+      historyLog: mockHistoryLog,
+      updated_at: new Date().toISOString()
+    }, null, 2));
+  } catch (e) {
+    console.warn("Could not save to shared_state.json:", e.message);
+  }
+}
 
 async function getState() {
   if (!hasApplicationCredentials || !db) {
@@ -342,6 +352,7 @@ apiRouter.post('/transactions/apply', auth, async (req, res) => {
         time: new Date().toLocaleTimeString()
       });
       mockVersion++;
+      saveLocalState();
       return res.json(await getState());
     }
 
@@ -387,6 +398,7 @@ apiRouter.delete('/history/:id', auth, async (req, res) => {
     
     mockHistoryLog.splice(historyIndex, 1);
     mockVersion++;
+    saveLocalState();
     return res.json(await getState());
   }
 
@@ -457,6 +469,7 @@ apiRouter.post('/reset', auth, async (req, res) => {
       mockOpenAmounts = {};
       mockHistoryLog = [];
       mockVersion++;
+      saveLocalState();
       return res.json(await getState());
     }
     const FieldValue = firebaseAdminFirestore.FieldValue;
