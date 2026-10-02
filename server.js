@@ -50,12 +50,23 @@ try {
   adminCredential = null;
   hasApplicationCredentials = false;
 }
-const firebaseApp = getApps()[0] || initializeApp({
-  ...(adminCredential ? { credential: adminCredential } : {}),
-  projectId: process.env.FIREBASE_PROJECT_ID || serviceAccount?.project_id || 'ghantabazar-fc6af'
-});
-const db = getFirestore(firebaseApp);
-const firebaseAuth = getAuth(firebaseApp);
+let firebaseApp = null;
+let db = null;
+let firebaseAuth = null;
+
+if (hasApplicationCredentials) {
+  try {
+    firebaseApp = getApps()[0] || initializeApp({
+      credential: adminCredential,
+      projectId: process.env.FIREBASE_PROJECT_ID || serviceAccount?.project_id || 'ghantabazar-fc6af'
+    });
+    db = getFirestore(firebaseApp);
+    firebaseAuth = getAuth(firebaseApp);
+  } catch (err) {
+    console.error("Firebase services initialization failed:", err.message);
+    hasApplicationCredentials = false;
+  }
+}
 
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(origin => origin.trim()).filter(Boolean);
 app.use(cors({ origin: (origin, callback) => {
