@@ -128,45 +128,17 @@
     .action-confirm-actions button:last-child { border-color: var(--danger); background: var(--danger); color: white; }
     .page-section { display: none; }
     .page-section.active { display: block; }
-    .index-login-gate[hidden] { display: none !important; }
-    .index-login-gate { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; overflow-y: auto; padding: 24px; background: var(--bg); color: var(--text); }
-    .index-login-panel { width: min(100%, 400px); padding: 30px; background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 16px rgb(15 23 42 / 12%); }
-    .index-login-title { margin-bottom: 8px; color: var(--primary); font-size: 1.5rem; text-align: center; }
-    .index-login-subtitle { margin-bottom: 18px; color: #475569; text-align: center; }
-    .index-login-panel label { display: block; margin: 12px 0 5px; font-weight: bold; }
-    .index-login-panel input { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 4px; font-size: 1rem; }
-    .index-login-submit { width: 100%; margin-top: 16px; padding: 10px; border: 0; border-radius: 4px; background: var(--accent); color: white; font-size: 1rem; font-weight: bold; cursor: pointer; }
-    .index-login-actions { display: flex; justify-content: space-between; gap: 12px; margin-top: 14px; }
-    .index-login-actions button { padding: 0; border: 0; background: none; color: var(--accent); text-decoration: underline; cursor: pointer; }
-    .index-login-status { min-height: 1.25em; margin-top: 14px; color: var(--danger); text-align: center; }
-    .index-login-status[data-kind="info"] { color: #0369a1; }
+    #app-content { display: none; }
+    #app-content.authenticated { display: block; }
 </style>
 </head>
 <body>
-<section class="index-login-gate" id="index-login-gate" aria-label="Login" aria-modal="true" role="dialog">
-  <div class="index-login-panel">
-    <h1 class="index-login-title" id="index-login-title">Admin Login</h1>
-    <p class="index-login-subtitle" id="index-login-subtitle">Sign in to continue to the calculator.</p>
-    <form id="index-login-form">
-      <label for="index-login-email">Username or email</label>
-      <input id="index-login-email" type="text" autocomplete="username" placeholder="Enter username or email" required>
-      <label for="index-login-password">Password</label>
-      <input id="index-login-password" type="password" autocomplete="current-password" minlength="6" required>
-      <button class="index-login-submit" id="index-login-submit" type="submit">Login</button>
-    </form>
-    <div class="index-login-actions">
-      <button type="button" id="index-forgot-password">Forgot Password?</button>
-      <button type="button" id="index-signup">Sign up</button>
-      <button type="button" id="index-login-mode" hidden>Login</button>
-    </div>
-    <p class="index-login-status" id="index-login-status" aria-live="polite"></p>
-  </div>
-</section>
+<div id="app-content">
 <header>
 <h2>Pana Calculator System</h2>
 <div class="overall-badge">Overall Total: <span id="overall-total">0</span></div>
 <button class="action-btn btn-reset" onclick="resetCalculator()">Reset All Amounts</button>
-<button class="action-btn" onclick="logout()">Logout</button>
+<button class="action-btn" onclick="window.firebaseSignOut()">Logout</button>
 </header>
 <div class="nav-tabs">
 <button class="nav-btn active" onclick="switchPage('sp-dp-page', this)">PAGE 1: SP + DP</button>
@@ -354,7 +326,7 @@
       </div>
     </form>
   </dialog>
-  <script type="module" src="/firebase-auth.mjs"></script>
+
   <script src="/script.js">
     const MASTER_DATA = {
       "sp_table": [
@@ -1002,130 +974,19 @@
       XLSX.utils.book_append_sheet(wb, ws, "Pana & Open Chart");
       XLSX.writeFile(wb, `Complete_Pana_Open_Chart_${dateStr}.xlsx`);
     }
-
-    window.onload = init;
   </script>
+  </div><!-- end #app-content -->
   <script type="module">
     import '/firebase-auth.mjs';
-
-    const gate = document.getElementById('index-login-gate');
-    const form = document.getElementById('index-login-form');
-    const email = document.getElementById('index-login-email');
-    const password = document.getElementById('index-login-password');
-    const status = document.getElementById('index-login-status');
-    const signupButton = document.getElementById('index-signup');
-    const loginModeButton = document.getElementById('index-login-mode');
-    const forgotButton = document.getElementById('index-forgot-password');
-    const title = document.getElementById('index-login-title');
-    const subtitle = document.getElementById('index-login-subtitle');
-    const submitButton = document.getElementById('index-login-submit');
-    const credentialLabel = document.querySelector('label[for="index-login-email"]');
-    const loginSessionKey = 'pana-login-active';
-    const navigation = performance.getEntriesByType('navigation')[0];
-    if (navigation?.type === 'reload') sessionStorage.removeItem(loginSessionKey);
-    let mode = 'login';
-    let loginInProgress = false;
-
-    function showStatus(message, kind = 'error') {
-      status.dataset.kind = kind;
-      status.textContent = message;
-    }
-
-    function setMode(nextMode) {
-      mode = nextMode;
-      const isSignup = mode === 'signup';
-      title.textContent = isSignup ? 'Create Account' : 'Admin Login';
-      subtitle.textContent = isSignup ? 'New accounts receive standard access.' : 'Sign in to continue to the calculator.';
-      submitButton.textContent = isSignup ? 'Sign up' : 'Login';
-      credentialLabel.textContent = isSignup ? 'Username' : 'Username or email';
-      email.placeholder = isSignup ? 'Choose a username' : 'Enter username or email';
-      password.autocomplete = isSignup ? 'new-password' : 'current-password';
-      signupButton.hidden = isSignup;
-      loginModeButton.hidden = !isSignup;
-      status.textContent = '';
-    }
-
-    signupButton.addEventListener('click', () => setMode('signup'));
-    loginModeButton.addEventListener('click', () => setMode('login'));
-
-    forgotButton.addEventListener('click', async () => {
-      if (!email.value.trim()) {
-        showStatus('Enter your registered email address first.');
-        email.focus();
-        return;
-      }
-      try {
-        await window.firebaseSendPasswordResetEmail(email.value.trim());
-        showStatus('If this email is registered, Firebase will send a password reset link.', 'info');
-      } catch (error) {
-        showStatus(error.message || 'Unable to send the password reset email.');
-      }
-    });
-
-    form.addEventListener('submit', async event => {
-      event.preventDefault();
-      submitButton.disabled = true;
-      loginInProgress = true;
-      try {
-        const user = mode === 'signup'
-          ? await window.firebaseSignUpUsername(email.value.trim(), password.value)
-          : await window.firebaseSignIn(email.value.trim(), password.value);
-        if (mode === 'signup') {
-          await window.firebaseSignOut();
-          setMode('login');
-          email.value = user.displayName || email.value.trim().toLowerCase();
-          showStatus('Account created in Firebase. Sign in with the same username and password.', 'info');
-          return;
-        }
-        const token = await user.getIdToken(true);
-        const response = await fetch('/api/me', { headers: { Authorization: `Bearer ${token}` } });
-        const account = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          await window.firebaseSignOut();
-          throw new Error(account.error || 'Unable to verify this Firebase account.');
-        }
-        window.setAuth(token, user.email);
-        await window.loadSharedState();
-        sessionStorage.setItem(loginSessionKey, '1');
-        gate.hidden = true;
-      } catch (error) {
-        sessionStorage.removeItem(loginSessionKey);
-        showStatus(error.code === 'auth/weak-password'
-          ? 'Firebase requires a password with at least 6 characters.'
-          : error.message || 'Unable to sign in.');
-      } finally {
-        loginInProgress = false;
-        submitButton.disabled = false;
-      }
-    });
-
-    window.firebaseOnAuthStateChanged(async user => {
-      if (!user) {
-        sessionStorage.removeItem(loginSessionKey);
-        gate.hidden = false;
-        return;
-      }
-      if (loginInProgress) return;
-      if (sessionStorage.getItem(loginSessionKey) !== '1') {
-        window.setAuth('', '');
-        gate.hidden = false;
-        await window.firebaseSignOut();
-        return;
-      }
-      try {
-        const token = await user.getIdToken();
-        const response = await fetch('/api/me', { headers: { Authorization: `Bearer ${token}` } });
-        const account = await response.json().catch(() => ({}));
-        if (response.ok) {
-          window.setAuth(token, user.email);
-          await window.loadSharedState();
-        } else {
-          sessionStorage.removeItem(loginSessionKey);
-        }
-        gate.hidden = response.ok;
-      } catch {
-        sessionStorage.removeItem(loginSessionKey);
-        gate.hidden = false;
+    
+    // Handle authentication state changes
+    window.firebaseOnAuthStateChanged((user) => {
+      const appContent = document.getElementById('app-content');
+      if (user) {
+        if (appContent) appContent.classList.add('authenticated');
+      } else {
+        // Redirect to new admin login page
+        window.location.href = '/admin-login.html';
       }
     });
   </script>

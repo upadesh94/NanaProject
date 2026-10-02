@@ -1,4 +1,5 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js';
+import { getAnalytics } from 'https://www.gstatic.com/firebasejs/12.9.0/firebase-analytics.js';
 import {
   browserSessionPersistence,
   getAuth,
@@ -16,6 +17,7 @@ if (!configResponse.ok) throw new Error('Firebase web configuration is unavailab
 const firebaseConfig = await configResponse.json();
 
 const firebaseApp = initializeApp(firebaseConfig);
+const analytics = getAnalytics(firebaseApp);
 const auth = getAuth(firebaseApp);
 await setPersistence(auth, browserSessionPersistence);
 const usernameEmail = username => `${username.trim().toLowerCase()}@users.${firebaseConfig.projectId}.firebaseapp.com`;

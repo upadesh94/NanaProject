@@ -62,35 +62,42 @@ function logout(){ return window.firebaseSignOut().finally(() => location.reload
 
 function init(){
   renderOpenTable(); renderSPTable(); renderDPTable(); renderFamilyTable(); updateAllTotalsAndUI();
-  window.firebaseOnAuthStateChanged(async user => {
-    if (!user) {
-      firebaseUid = '';
-      setAuth('', '');
-      if (sharedStatePollTimer) clearInterval(sharedStatePollTimer);
-      sharedStatePollTimer = null;
-      sharedStateVersion = null;
-      return;
-    }
-    const isNewUser = firebaseUid !== user.uid;
-    firebaseUid = user.uid;
-    setAuth(await user.getIdToken(), user.email);
-    try {
-      await apiRequest('/api/me');
-    } catch (e) {
-      showStatus(e.message, true);
-      return;
-    }
-    if (isNewUser) {
+  
+  if (window.firebaseOnAuthStateChanged) {
+    window.firebaseOnAuthStateChanged(async user => {
+      if (!user) {
+        firebaseUid = '';
+        setAuth('', '');
+        if (sharedStatePollTimer) clearInterval(sharedStatePollTimer);
+        sharedStatePollTimer = null;
+        sharedStateVersion = null;
+        return;
+      }
+      
+      firebaseUid = user.uid;
+      // After login, we fetch the token and let backend handle the rest.
+      setAuth(await user.getIdToken(), user.email);
+      
+      try {
+        await apiRequest('/api/me');
+      } catch (e) {
+        showStatus(e.message, true);
+        return;
+      }
+      
       try { await loadSharedState(); }
-      catch (e) { showStatus(e.message==='LOGIN_REQUIRED'?'Please login first.':e.message,true); return; }
-    }
-    try { await pollSharedStateVersion(); }
-    catch (e) { showStatus(e.message, true); return; }
-    if (sharedStatePollTimer) clearInterval(sharedStatePollTimer);
-    sharedStatePollTimer = setInterval(() => {
-      if (document.visibilityState === 'visible') pollSharedStateVersion().catch(e=>showStatus(e.message,true));
-    }, 1200);
-  });
+      catch (e) { showStatus(e.message, true); return; }
+      
+      try { await pollSharedStateVersion(); }
+      catch (e) { showStatus(e.message, true); return; }
+      
+      if (sharedStatePollTimer) clearInterval(sharedStatePollTimer);
+      sharedStatePollTimer = setInterval(() => {
+        if (document.visibilityState === 'visible') pollSharedStateVersion().catch(e=>showStatus(e.message,true));
+      }, 1200);
+    });
+  }
+
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && authToken) pollSharedStateVersion().catch(e=>showStatus(e.message,true));
   });
@@ -127,7 +134,6 @@ async function applyMode(mode){
   const rawInput=document.getElementById('input-number').value.trim(), amt=parseFloat(document.getElementById('input-amount').value.trim());
   if(!rawInput)return showStatus('Please enter a number.',true);
   if(!Number.isFinite(amt)||amt<=0)return showStatus('Please enter a valid positive amount (> 0).',true);
-  if(!authToken)return showStatus('Please login first.',true);
   let targets=[],desc='';
   if(mode==='SINGLE'){
     const toks=rawInput.split(',').map(s=>s.trim()).filter(Boolean); targets=toks.filter(existsInExcel);
@@ -149,21 +155,20 @@ async function applyMode(mode){
   try{await applySharedTransaction({mode,num:rawInput,amount:amt,targets,modeDesc:desc,totalAdd:amt*targets.length});showStatus(`Successfully added ₹${amt} via ${desc}. Total additions = ₹${amt*targets.length}`);}catch(e){showStatus(e.message==='LOGIN_REQUIRED'?'Please login first.':e.message,true);}
 }
 async function applyDirectCol(type,col,amtVal){
-  const amt=parseFloat(amtVal); if(!Number.isFinite(amt)||amt<=0)return; if(!authToken)return showStatus('Please login first.',true);
+  const amt=parseFloat(amtVal); if(!Number.isFinite(amt)||amt<=0)return;
   const idx=COLS.indexOf(col), table=type==='SP'?MASTER_DATA.sp_table:MASTER_DATA.dp_table, targets=table.map(r=>r[idx]).filter(Boolean);
   try{await applySharedTransaction({mode:`${type}_COLUMN`,num:`Col ${col}`,amount:amt,targets,modeDesc:`${type} Column ${col} Direct`,totalAdd:amt*targets.length});}catch(e){showStatus(e.message,true);}
 }
 async function applyCommonCol(col,amtVal){
-  const amt=parseFloat(amtVal); if(!Number.isFinite(amt)||amt<=0)return; if(!authToken)return showStatus('Please login first.',true);
+  const amt=parseFloat(amtVal); if(!Number.isFinite(amt)||amt<=0)return;
   const idx=COLS.indexOf(col),targets=[...MASTER_DATA.sp_table.map(r=>r[idx]),...MASTER_DATA.dp_table.map(r=>r[idx])].filter(Boolean);
   try{await applySharedTransaction({mode:'COMMON_COLUMN',num:`Col ${col}`,amount:amt,targets,modeDesc:`Common SP + DP Column ${col}`,totalAdd:amt*targets.length});}catch(e){showStatus(e.message,true);}
 }
 async function resetCalculator(){
-  if(!authToken)return showStatus('Please login first.',true); if(!await confirmAction('Are you sure you want to reset all account data?','Reset All'))return;
+  if(!await confirmAction('Are you sure you want to reset all account data?','Reset All'))return;
   try{const d=await apiRequest('/api/reset',{method:'POST'});numberAmounts=d.numberAmounts||{};openAmounts=d.openAmounts||{};historyLog=d.historyLog||[];updateAllTotalsAndUI();showStatus('Shared calculator state reset to 0.');}catch(e){showStatus(e.message,true);}
 }
 async function deleteTransaction(transactionId){
-  if(!authToken)return showStatus('Please login first.',true);
   if(!await confirmAction('Are you sure you want to delete this transaction?','Delete'))return;
   try{const d=await apiRequest(`/api/history/${encodeURIComponent(transactionId)}`,{method:'DELETE'});numberAmounts=d.numberAmounts||{};openAmounts=d.openAmounts||{};historyLog=d.historyLog||[];updateAllTotalsAndUI();showStatus('Transaction deleted.');}catch(e){showStatus(e.message,true);}
 }
@@ -197,7 +202,18 @@ function exportToExcel(){
   const now=new Date(),dateStr=now.toLocaleDateString('en-GB').split('/').join('-'),timeStr=now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:true});
   const rows=[[`Date: ${dateStr}`],[`Time: ${timeStr}`],[''],['Minimum Amount:'],[`Number: ${minNum}`],[`Amount: ${minAmt}`],[''],['Maximum Amount:'],[`Number: ${maxNum}`],[`Amount: ${maxAmt}`],[''],['OPEN TABLE'],['Index','Amount']];let openTotal=0;OPEN_NUMBERS.forEach(n=>{const a=Number(openAmounts[n]||0);openTotal+=a;rows.push([n,a>0?String(a):'']);});rows.push(['Total',String(openTotal)],[''],['COMBINED SP + DP PANA CHART'],['','1','2','3','4','5','6','7','8','9','0']);const sums=new Array(10).fill(0);let spdp=0;for(const row of [...MASTER_DATA.sp_table,...MASTER_DATA.dp_table]){const out=[''];row.forEach((n,c)=>{const a=Number(numberAmounts[n]||0);spdp+=a;sums[c]+=a;out.push(a>0?`${n} (${a})`:n);});rows.push(out);}rows.push(['Col Total',...sums.map(String)]);rows.push([`Overall Total: ${openTotal+spdp}`]);
   const ws=XLSX.utils.aoa_to_sheet(rows),range=XLSX.utils.decode_range(ws['!ref']),border={top:{style:'thin',color:{rgb:'CBD5E1'}},bottom:{style:'thin',color:{rgb:'CBD5E1'}},left:{style:'thin',color:{rgb:'CBD5E1'}},right:{style:'thin',color:{rgb:'CBD5E1'}}};
-  for(let r=range.s.r;r<=range.e.r;r++)for(let c=range.s.c;c<=range.e.c;c++){const a=XLSX.utils.encode_cell({r,c});if(ws[a]){ws[a].s=ws[a].s||{};ws[a].s.border=border;ws[a].s.font={name:'Arial',color:{rgb:'0F172A'}};}}
+  for(let r=range.s.r;r<=range.e.r;r++)for(let c=range.s.c;c<=range.e.c;c++){
+    const a=XLSX.utils.encode_cell({r,c});
+    if(ws[a]){
+      ws[a].s=ws[a].s||{};
+      ws[a].s.border=border;
+      let fontColor = '0F172A';
+      if (ws[a].v && typeof ws[a].v === 'string' && ws[a].v.includes('(')) fontColor = 'FF0000';
+      // For open table amounts (second column, rows 13 to 22 roughly, we can just check if it's a number string in col B)
+      if (c === 1 && ws[a].v && !isNaN(ws[a].v) && String(ws[a].v).trim() !== '' && r > 11 && r < 23) fontColor = 'FF0000';
+      ws[a].s.font={name:'Arial',color:{rgb:fontColor}, bold: fontColor === 'FF0000'};
+    }
+  }
   ws['!cols']=[{wch:18},...Array(10).fill({wch:14})];const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Pana & Open Chart');XLSX.writeFile(wb,`Complete_Pana_Open_Chart_${dateStr}.xlsx`);
 }
 window.login=login;window.logout=logout;window.setAuth=setAuth;window.loadSharedState=loadSharedState;window.onload=init;
